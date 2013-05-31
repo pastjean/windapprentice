@@ -7,8 +7,8 @@ Machine learning algorithms used in [Chinook][chinook] to control the pitch angl
 Projects links
 --------------
 
-- [Wind Apprentice Trello board : https://trello.com/board/wind-apprentice/518a9dfd2d4ebe4e1a000b36][trello]
-- [Github project: ][gh_pro]
+- [Wind Apprentice Trello board][trello]
+- [Github project][gh_pro]
 - [Chinook's github org][chinook_gh_org]
 
 [gh_pro]:https://github.com/pastjean/windapprentice

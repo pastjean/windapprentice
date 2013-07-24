@@ -1,8 +1,9 @@
 #include <stdlib.h>
 #include <stdio.h>
 #include <math.h>
+#include <time.h>
 
-#define POPSIZE 100
+#define POPSIZE 1000
 #define C1 0.5176
 #define C2 116.0
 #define C3 0.4
@@ -33,9 +34,15 @@ float RATIOS[]={ 0.279,
 #define MAX_PITCH 20
 #define MIN_PITCH -10
 
-#define crossover_p 0.5
-#define mutation_p 0.5
-#define selection_p 0.2
+#define MIN_GEAR 1
+#define MAX_GEAR 14
+
+#define crossover_p 0.3
+#define mutation_p 0.3
+#define selection_tournament_p 0.5
+#define selection_p 0.4
+#define maxgen 100
+
 
 typedef struct{
   int gear;
@@ -65,7 +72,9 @@ typedef struct{
   int gear;
   float turbine_speed; // rad/s
   float turbine_radius;
+  // for space efficiency parents are stored as first element in pop
   wa_element pop[POPSIZE];
+  unsigned int seed;
 }wa_state_s;
 
 
@@ -79,8 +88,7 @@ void wa_crossover(wa_state_s*);
 void wa_mutate(wa_state_s*);
 
 void wa_init(wa_state_s* wa_state){
-  wa_state->wind_speed = 0;
-  srandom(12590951);
+  srandom(wa_state->seed);
 }
 
 void wa_eval_element(wa_element* elem){
@@ -109,15 +117,18 @@ void wa_init_pop(wa_state_s* s){
   }
 }
 
+void wa_print_elem(wa_element* elem){
+    printf("g= %d,p= %f,eval= %f\n",elem->gear,elem->pitch,elem->cp);
+}
 void wa_print_pop(wa_state_s* s){
   wa_element* elem;
 
   for(int i=0;i<POPSIZE;i++){
     elem = &(s->pop[i]);
-
-    printf("[%d] g= %d,p= %f,eval= %f\n",i,elem->gear,elem->pitch,elem->cp);
+    printf("[%d]",i);wa_print_elem(elem);
   }
 }
+
 void wa_eval_pop(wa_state_s* s){
   wa_element* elem;
   
@@ -140,17 +151,91 @@ void wa_eval_pop(wa_state_s* s){
 }
 
 void wa_selection(wa_state_s* s){
+  int n_elem = round(POPSIZE* selection_tournament_p);
+  if(n_elem > POPSIZE){
+    fprintf(stderr,"ERROR: Size of selection is greater than population...");
+    exit(0);
+  }
 
+  wa_element tpop[n_elem];
 
+  int tpop_i=0;
+  for(int i=0;tpop_i<n_elem;i++){
+    if( (i%POPSIZE) % ((int) round(1 / selection_tournament_p)) == 0){
+      tpop[tpop_i]= s->pop[i];
+      tpop_i++;
+    }
+    i++;
+  }
+  // select selection_tournament_p percent of pop
+  // get the selection_p best of the tournament
+  qsort(tpop,n_elem,sizeof(tpop[0]),wa_element_r_comparator);
+
+  n_elem = round(POPSIZE * selection_p);
+
+  for(int i=0;i<n_elem;i++){
+    s->pop[i]= tpop[i];
+  }
 }
-void wa_crossover(wa_state_s* s){}
-void wa_mutate(wa_state_s* s){}
 
+void wa_crossover(wa_state_s* s){
+// TODO: FAIRE LE CROSSOVER
+}
+
+void wa_mutate(wa_state_s* s){
+  int n_elem = round(POPSIZE * mutation_p);
+  int n_parent = round(POPSIZE * selection_p);
+
+  wa_element tpop[n_elem];
+  int tpop_i=0;
+
+   for(int i=0;tpop_i<n_elem;i++){ 
+
+    int randomnum = random();
+    if( (randomnum*i)%n_parent==0){
+      wa_element e = s->pop[i%n_parent];
+
+      // pitch modification percentage 70% de 255 -> 
+      if((randomnum&0xFF) <= 179){
+        
+        // change a random decimal number to another
+        int n = (randomnum&0xFF00>>8)%10;
+        int d = ((randomnum&0xFF0)>>4)%4;
+        float a = e.pitch/10;
+
+        a = a - (round(a*pow(10,d))-round(a*pow(10,d-1))*10) / pow(10,d) + n/pow(10,d);
+        e.pitch = a*10 ;
+
+        if(e.pitch<MIN_PITCH)
+          e.pitch = MIN_PITCH;
+        if(e.pitch>MAX_PITCH)
+          e.pitch = MAX_PITCH;
+      }
+      // gear modification percentage 20% de 255
+      if(((randomnum&0xFF00)>>8) <= 51){
+        e.gear ^= 0x01<< (randomnum%4);
+          if(e.gear>MAX_GEAR)
+            e.gear= MAX_GEAR;
+      }
+      tpop[tpop_i]=e;
+      tpop_i++;
+    }
+  }
+
+  int off = round(POPSIZE*selection_p)+ round(POPSIZE*crossover_p);
+  for(int i=0;i<n_elem;i++){
+    s->pop[off+i]= tpop[i];
+    
+  }
+}
 
 int main(int argc,char** argv){
 
+  printf("Wind apprentice genetic algorithm solver\n\n");
   wa_state_s state;
 
+  state.seed= time(0);
+  printf("Seed is %d\n",state.seed);
   wa_init(&state);
 
   state.wind_speed=6; // m/s
@@ -159,14 +244,33 @@ int main(int argc,char** argv){
   state.turbine_speed=1000; // rad/s
   state.turbine_radius=TURBINE_RADIUS;
 
-
   wa_init_pop(&state);
-  wa_eval_pop(&state);
-  qsort(state.pop,POPSIZE,sizeof(state.pop[0]),wa_element_r_comparator);
 
-  for(int i=0; i<100;i++){
+  //wa_eval_pop(&state);
+  //wa_print_pop(&state);
+  
+  for(int i=0; i<(maxgen+1);i++){
+    // Eval cp in the population
+    wa_eval_pop(&state);
+    // Sort pop by cp
+
+    if(i < maxgen){
+      // Select parents
+      wa_selection(&state);
+      // Crossover the things
+      wa_crossover(&state);
+      // Mutate the things
+      wa_mutate(&state);
+
+      // Per generation status
+      printf("Gen %d best:",i);
+      wa_print_elem(&state.pop[0]);
+    }else{
+      //qsort(state.pop,POPSIZE,sizeof(state.pop[0]),wa_element_r_comparator);
+      printf("BEST CHOICE IS:");
+      wa_print_elem(&state.pop[0]);
+    }
 
   }
-  wa_print_pop(&state);
 
 }
